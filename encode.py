@@ -41,9 +41,9 @@ def main():
         # global windowSize
         # windowSize = int(sys.argv[1])
         sequences,labels = readFasta()
-        num_features = optimalFeatures(np.asarray(sequences),np.asarray(labels))
-        evaluateFeatures(np.asarray(sequences),np.asarray(labels), num_features)
-        # buildModel(np.asarray(sequences),np.asarray(labels))
+        # num_features = optimalFeatures(np.asarray(sequences),np.asarray(labels))
+        new_X = evaluateFeatures(np.asarray(sequences),np.asarray(labels), 49)
+        buildModel(np.asarray(new_X),np.asarray(labels))
         # windows, labels = createWindows(s,l)
         # buildModel(np.asarray(windows),np.asarray(labels))
 
@@ -102,23 +102,29 @@ def processSeq(seq_record):
     ''' Protein features found:
         - Sequence Length
         - Amino Acid Composition (global)
+        - Amino Acid Composition (First 50/Last 50)
         - Isoelectric Point
-        - Molecular Weight (global)
         - Aromacity
+        - Grand Average Hydropathy (Gravy)
+        - Molecular Weight (global)
+        - Molecular Weight (First 50/Last 50)
+        - Secondary Structure Fraction
     '''
 
-    desc = str(seq_record.description).split('_')
-    species = desc[1].split(' ')[0]
+
     seq = str(seq_record.seq)
     prot = ProteinAnalysis(seq)
+    desc = str(seq_record.description).split('_')
+    species = desc[1].split(' ')[0]
     seq_length = len(seq)
-    AA_global_dist = getAAPercent(seq,0,seq_length)
-    gravy = calculateGravy(seq,0,seq_length)
-    flex_global = calculateFlexibility(seq,0,seq_length)
     isoelectric = prot.isoelectric_point()
-    mol_global_weight = calculateMolecularWeight(seq,0,seq_length)
+    gravy = calculateGravy(seq,0,seq_length)
     aroma = prot.aromaticity()
     ss_frac = prot.secondary_structure_fraction()
+
+    mol_global_weight = calculateMolecularWeight(seq,0,seq_length)
+    AA_global_dist = getAAPercent(seq,0,seq_length)
+    flex_global = calculateFlexibility(seq,0,seq_length)
     if (seq_length > 50):
         AA_local_head = getAAPercent(seq,0,50)
         AA_local_tail = getAAPercent(seq,seq_length-50,seq_length)
@@ -133,8 +139,16 @@ def processSeq(seq_record):
         mol_local_weight_tail = mol_global_weight
         flex_localh = flex_global
         flex_localt = flex_global
-    return_vector = [seq_length,aroma, isoelectric, mol_global_weight, mol_local_weight_head, mol_local_weight_tail,gravy,flex_global,flex_localh,flex_localt] + \
-    AA_global_dist + AA_local_head + AA_local_tail
+
+    return_vector = [seq_length,aroma,
+                    isoelectric,
+                    mol_global_weight,
+                    mol_local_weight_head,
+                    mol_local_weight_tail,
+                    gravy,flex_global,
+                    flex_localh,
+                    flex_localt] + \
+                    AA_global_dist + AA_local_head + AA_local_tail + list(ss_frac)
 
     # print seq_length, GC_distribution, mol_weight, aroma, isoelectric
     return species, return_vector
@@ -222,8 +236,10 @@ def evaluateFeatures(X,y, num_features):
         AA_localh_labels += ["Amino Acid Composition (First 50) Pos:{}".format(aminoAcids[i])]
         AA_localt_labels += ["Amino Acid Composition (Last 50) Pos:{}".format(aminoAcids[i])]
 
-    labels = ["Sequence Length","Aromacity","Isoelectricity","Molecular Weight (Global)", "Molecular Weight (First 50)","Molecular Weight (Last 50)","Gravy","Mean Flexibility (Global)","Mean Flexibility (First 50)","Mean Flexibility (Last 50)"] + \
-    AA_global_labels + AA_localh_labels + AA_localt_labels
+    labels = ["Sequence Length","Aromacity","Isoelectricity","Molecular Weight (Global)", "Molecular Weight (First 50)","Molecular Weight (Last 50)","Gravy","Mean Flexibility (Global)","Mean Flexibility (First 50)","Mean Flexibility (Last 50)"]
+    labels += AA_global_labels + AA_localh_labels + AA_localt_labels
+    labels += ["Secondary Struct Helix","Secondary Struct Coil","Secondary Struct Sheet"]
+
     importances = selector.ranking_
     indices = np.argsort(importances)
     sorted_labels = []
@@ -241,6 +257,15 @@ def evaluateFeatures(X,y, num_features):
     plot.xlim([-1, X.shape[1]])
     plot.show()
 
+    sorted_features = []
+    for i in range(0,len(X)):
+        row = X[i]
+        current_features = [row[indices[i]] for i in range(0,num_features)]
+        print len(current_features)
+        sorted_features += [current_features]
+    print(indices[0:num_features])
+    return sorted_features
+
 
 def buildModel(X,y):
     # X = np.reshape(X,(X.shape[0],X.shape[1] * X.shape[2]))
@@ -252,7 +277,7 @@ def buildModel(X,y):
 
     bag = BalancedBaggingClassifier(n_estimators=200,random_state=19)
     svm = SVC(class_weight='balanced',random_state=19,decision_function_shape='ovo')
-    neural = MLPClassifier(max_iter=500,random_state=19,solver='lbfgs',alpha=1e-5,hidden_layer_sizes=(27,8,4))
+    neural = MLPClassifier(max_iter=500,random_state=19,solver='lbfgs',alpha=1e-5,hidden_layer_sizes=(49,8,4))
     ada = AdaBoostClassifier(n_estimators=100,random_state=19)
     logistic = LogisticRegression(solver='lbfgs',max_iter=500)
 
